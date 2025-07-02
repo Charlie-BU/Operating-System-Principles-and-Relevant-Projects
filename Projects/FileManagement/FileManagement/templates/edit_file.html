@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}编辑文件 - {{ filename }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- 编辑器工具栏 -->
+        <div class="toolbar">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5 class="mb-0">
+                        <i class="bi bi-file-text me-2"></i>
+                        正在编辑: {{ filename }}
+                    </h5>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-success me-2" onclick="saveFile()" id="saveBtn">
+                        <i class="bi bi-save"></i> 保存 (Ctrl+S)
+                    </button>
+                    <button class="btn btn-secondary" onclick="window.close()">
+                        <i class="bi bi-x-circle"></i> 关闭
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 文件编辑器 -->
+        <div class="main-content">
+            <div class="row">
+                <div class="col-12">
+                    <div class="mb-3">
+                        <label for="fileContent" class="form-label">
+                            文件内容 
+                            <small class="text-muted">(字符数: <span id="charCount">{{ content|length }}</span>)</small>
+                        </label>
+                        <textarea 
+                            class="form-control" 
+                            id="fileContent" 
+                            rows="25" 
+                            placeholder="在此输入文件内容..."
+                            style="font-family: 'Courier New', monospace; font-size: 14px;">{{ content }}</textarea>
+                    </div>
+                    
+                    <!-- 编辑器状态栏 -->
+                    <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                        <div>
+                            <small class="text-muted">
+                                行数: <span id="lineCount">{{ content.count('\n') + 1 if content else 1 }}</span> |
+                                字符数: <span id="charCountStatus">{{ content|length }}</span> |
+                                状态: <span id="saveStatus" class="text-success">已保存</span>
+                            </small>
+                        </div>
+                        <div>
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i>
+                                使用 Ctrl+S 快速保存
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 保存确认模态框 -->
+<div class="modal fade" id="saveConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    确认保存
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>文件内容已修改，是否保存更改？</p>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    如果不保存，您的更改将会丢失。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="closeWithoutSave()">不保存</button>
+                <button type="button" class="btn btn-success" onclick="saveAndClose()">保存并关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script lang="javascript">
+    const filename = '{{ filename }}';
+    const originalContent = `{{ content|replace('`', '\\`')|replace('${', '\\${') }}`;
+    let hasUnsavedChanges = false;
+    let isCtrlPressed = false;
+    
+    const fileContentTextarea = document.getElementById('fileContent');
+    const charCountSpan = document.getElementById('charCount');
+    const charCountStatusSpan = document.getElementById('charCountStatus');
+    const lineCountSpan = document.getElementById('lineCount');
+    const saveStatusSpan = document.getElementById('saveStatus');
+    const saveBtn = document.getElementById('saveBtn');
+    
+    // 监听文本变化
+    fileContentTextarea.addEventListener('input', function() {
+        updateStats();
+        checkForChanges();
+    });
+    
+    // 监听键盘事件
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey) {
+            isCtrlPressed = true;
+            if (e.key === 's') {
+                e.preventDefault();
+                saveFile();
+            }
+        }
+    });
+    
+    document.addEventListener('keyup', function(e) {
+        if (!e.ctrlKey && !e.metaKey) {
+            isCtrlPressed = false;
+        }
+    });
+    
+    // 页面关闭前检查
+    window.addEventListener('beforeunload', function(e) {
+        if (hasUnsavedChanges) {
+            e.preventDefault();
+            e.returnValue = '您有未保存的更改，确定要离开吗？';
+            return e.returnValue;
+        }
+    });
+    
+    function updateStats() {
+        const content = fileContentTextarea.value;
+        const charCount = content.length;
+        const lineCount = content.split('\n').length;
+        
+        charCountSpan.textContent = charCount;
+        charCountStatusSpan.textContent = charCount;
+        lineCountSpan.textContent = lineCount;
+    }
+    
+    function checkForChanges() {
+        const currentContent = fileContentTextarea.value;
+        const hasChanges = currentContent !== originalContent;
+        
+        if (hasChanges !== hasUnsavedChanges) {
+            hasUnsavedChanges = hasChanges;
+            updateSaveStatus();
+        }
+    }
+    
+    function updateSaveStatus() {
+        if (hasUnsavedChanges) {
+            saveStatusSpan.textContent = '未保存';
+            saveStatusSpan.className = 'text-warning';
+            saveBtn.classList.remove('btn-success');
+            saveBtn.classList.add('btn-warning');
+            document.title = '* ' + document.title.replace('* ', '');
+        } else {
+            saveStatusSpan.textContent = '已保存';
+            saveStatusSpan.className = 'text-success';
+            saveBtn.classList.remove('btn-warning');
+            saveBtn.classList.add('btn-success');
+            document.title = document.title.replace('* ', '');
+        }
+    }
+    
+    function saveFile() {
+        const content = fileContentTextarea.value;
+        
+        // 显示保存中状态
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 保存中...';
+        saveStatusSpan.textContent = '保存中...';
+        saveStatusSpan.className = 'text-info';
+        
+        fetch('/save_file', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filename: filename,
+                content: content
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                hasUnsavedChanges = false;
+                updateSaveStatus();
+                showMessage(data.message, 'success');
+                
+                // 更新原始内容
+                originalContent = content;
+            } else {
+                showMessage(data.message, 'danger');
+                saveStatusSpan.textContent = '保存失败';
+                saveStatusSpan.className = 'text-danger';
+            }
+        })
+        // .catch(error => {
+        //     console.error('保存失败:', error);
+        //     showMessage('保存失败，请重试', 'danger');
+        //     saveStatusSpan.textContent = '保存失败';
+        //     saveStatusSpan.className = 'text-danger';
+        // })
+        .finally(() => {
+            // 恢复保存按钮状态
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-save"></i> 保存 (Ctrl+S)';
+        });
+    }
+    
+    function closeWithoutSave() {
+        hasUnsavedChanges = false;
+        window.close();
+    }
+    
+    function saveAndClose() {
+        saveFile();
+        setTimeout(() => {
+            if (!hasUnsavedChanges) {
+                window.close();
+            }
+        }, 1000);
+    }
+    
+    // 自动保存功能（可选）
+    let autoSaveInterval;
+    function enableAutoSave() {
+        autoSaveInterval = setInterval(() => {
+            if (hasUnsavedChanges) {
+                saveFile();
+            }
+        }, 30000); // 每30秒自动保存
+    }
+    
+    function disableAutoSave() {
+        if (autoSaveInterval) {
+            clearInterval(autoSaveInterval);
+        }
+    }
+    
+    // 文本编辑器增强功能
+    fileContentTextarea.addEventListener('keydown', function(e) {
+        // Tab键插入4个空格
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            const value = this.value;
+            
+            this.value = value.substring(0, start) + '    ' + value.substring(end);
+            this.selectionStart = this.selectionEnd = start + 4;
+        }
+        
+        // Ctrl+A 全选
+        if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+            e.preventDefault();
+            this.select();
+        }
+    });
+    
+    // 初始化统计信息
+    updateStats();
+    
+    // 聚焦到文本区域
+    fileContentTextarea.focus();
+    
+    // 可选：启用自动保存
+    // enableAutoSave();
+</script>
+{% endblock %}

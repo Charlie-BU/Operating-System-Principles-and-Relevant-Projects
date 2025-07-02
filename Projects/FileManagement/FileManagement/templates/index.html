@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <!-- 左侧目录树 -->
+    <div class="col-md-3">
+        <div class="sidebar">
+            <h6 class="mb-3"><i class="bi bi-folder-fill"></i> 目录结构</h6>
+            <div id="directoryTree">
+                <div class="tree-item active" onclick="navigateToPath(['root'])">
+                    <i class="bi bi-house-fill"></i> root
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 右侧主内容区 -->
+    <div class="col-md-9">
+        <!-- 工具栏 -->
+        <div class="toolbar">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <nav class="breadcrumb mb-0">
+                        <i class="bi bi-folder me-2"></i>
+                        <span id="currentPath">{{ path_string }}</span>
+                    </nav>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-outline-primary btn-sm me-1" onclick="goBack()" id="backBtn">
+                        <i class="bi bi-arrow-left"></i> 返回
+                    </button>
+                    <button class="btn btn-outline-success btn-sm me-1" onclick="showCreateModal('folder')">
+                        <i class="bi bi-folder-plus"></i> 新建文件夹
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="showCreateModal('file')">
+                        <i class="bi bi-file-plus"></i> 新建文件
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 文件列表 -->
+        <div class="main-content">
+            <div class="row" id="fileList">
+                {% for file in files %}
+                <div class="col-lg-2 col-md-3 col-sm-4 col-6">
+                    <div class="file-item" 
+                         data-name="{{ file.name }}" 
+                         data-is-file="{{ file.isFile|lower }}"
+                         onclick="selectItem(this)"
+                         ondblclick="openItem('{{ file.name }}', {{ file.isFile|lower }})">
+                        {% if file.isFile %}
+                            <i class="bi bi-file-text file-icon text-primary"></i>
+                        {% else %}
+                            <i class="bi bi-folder-fill file-icon text-warning"></i>
+                        {% endif %}
+                        <div class="file-name">{{ file.name }}</div>
+                        <small class="text-muted">{{ file.updateTime }}</small>
+                    </div>
+                </div>
+                {% endfor %}
+                
+                {% if files|length == 0 %}
+                <div class="col-12 text-center py-5">
+                    <i class="bi bi-folder2-open" style="font-size: 64px; color: #ccc;"></i>
+                    <p class="text-muted mt-3">此文件夹为空</p>
+                    <button class="btn btn-outline-primary" onclick="showCreateModal('folder')">
+                        <i class="bi bi-folder-plus"></i> 创建第一个文件夹
+                    </button>
+                    <button class="btn btn-outline-info ms-2" onclick="showCreateModal('file')">
+                        <i class="bi bi-file-plus"></i> 创建第一个文件
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentPath = {{ current_path|tojson }};
+    
+    function selectItem(element) {
+        // 清除之前的选择
+        document.querySelectorAll('.file-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        
+        // 选择当前项
+        element.classList.add('selected');
+        selectedItem = element.dataset.name;
+        
+        // 添加右键菜单事件
+        element.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showContextMenu(e, element.dataset.name, element.dataset.isFile === 'true');
+        });
+    }
+    
+    function openItem(name, isFile) {
+        if (isFile) {
+            // 打开文件编辑器
+            window.open(`/edit_file/${encodeURIComponent(name)}`, '_blank');
+        } else {
+            // 进入文件夹
+            const newPath = [...currentPath, name];
+            navigateToPath(newPath);
+        }
+    }
+    
+    function navigateToPath(path) {
+        fetch('/navigate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({path: path})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                showMessage(data.message, 'danger');
+            }
+        });
+    }
+    
+    function goBack() {
+        if (currentPath.length > 1) {
+            const newPath = currentPath.slice(0, -1);
+            navigateToPath(newPath);
+        }
+    }
+    
+    function showCreateModal(type) {
+        currentCreateType = type;
+        document.getElementById('createModalTitle').textContent = type === 'file' ? '创建文件' : '创建文件夹';
+        document.getElementById('itemName').value = '';
+        
+        const modal = new bootstrap.Modal(document.getElementById('createModal'));
+        modal.show();
+        
+        // 设置确认按钮事件
+        document.getElementById('createConfirm').onclick = function() {
+            createItem();
+        };
+    }
+    
+    function createItem() {
+        const name = document.getElementById('itemName').value.trim();
+        if (!name) {
+            showMessage('名称不能为空', 'warning');
+            return;
+        }
+        
+        const endpoint = currentCreateType === 'file' ? '/create_file' : '/create_folder';
+        
+        fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({name: name})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage(data.message, 'success');
+                bootstrap.Modal.getInstance(document.getElementById('createModal')).hide();
+                location.reload();
+            } else {
+                showMessage(data.message, 'danger');
+            }
+        });
+    }
+    
+    function showContextMenu(event, itemName, isFile) {
+        hideContextMenu();
+        
+        const menu = document.createElement('div');
+        menu.className = 'context-menu';
+        menu.style.left = event.pageX + 'px';
+        menu.style.top = event.pageY + 'px';
+        
+        const menuItems = [
+            {
+                text: isFile ? '编辑' : '打开',
+                icon: isFile ? 'bi-pencil' : 'bi-folder-fill',
+                action: () => openItem(itemName, isFile)
+            },
+            {
+                text: '重命名',
+                icon: 'bi-pencil-square',
+                action: () => showRenameModal(itemName)
+            },
+            {
+                text: '删除',
+                icon: 'bi-trash',
+                action: () => deleteItem(itemName)
+            },
+            {
+                text: '属性',
+                icon: 'bi-info-circle',
+                action: () => showFileInfo(itemName)
+            }
+        ];
+        
+        menuItems.forEach(item => {
+            const menuItem = document.createElement('div');
+            menuItem.className = 'context-menu-item';
+            menuItem.innerHTML = `<i class="bi ${item.icon} me-2"></i>${item.text}`;
+            menuItem.onclick = item.action;
+            menu.appendChild(menuItem);
+        });
+        
+        document.body.appendChild(menu);
+    }
+    
+    function showRenameModal(itemName) {
+        currentRenameName = itemName;
+        document.getElementById('newName').value = itemName;
+        
+        const modal = new bootstrap.Modal(document.getElementById('renameModal'));
+        modal.show();
+    }
+    
+    function confirmRename() {
+        const newName = document.getElementById('newName').value.trim();
+        if (!newName) {
+            showMessage('名称不能为空', 'warning');
+            return;
+        }
+        
+        fetch('/rename', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                old_name: currentRenameName,
+                new_name: newName
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage(data.message, 'success');
+                bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
+                location.reload();
+            } else {
+                showMessage(data.message, 'danger');
+            }
+        });
+    }
+    
+    function deleteItem(itemName) {
+        if (confirm(`确定要删除 "${itemName}" 吗？`)) {
+            fetch('/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({name: itemName})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    location.reload();
+                } else {
+                    showMessage(data.message, 'danger');
+                }
+            });
+        }
+    }
+    
+    function showFileInfo(itemName) {
+        fetch(`/file_info/${encodeURIComponent(itemName)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const info = data.info;
+                document.getElementById('infoContent').innerHTML = `
+                    <table class="table table-borderless">
+                        <tr><td><strong>名称:</strong></td><td>${info.name}</td></tr>
+                        <tr><td><strong>类型:</strong></td><td>${info.isFile ? '文件' : '文件夹'}</td></tr>
+                        <tr><td><strong>创建时间:</strong></td><td>${info.createTime}</td></tr>
+                        <tr><td><strong>修改时间:</strong></td><td>${info.updateTime}</td></tr>
+                        <tr><td><strong>大小:</strong></td><td>${info.size} ${info.isFile ? '字符' : '项'}</td></tr>
+                    </table>
+                `;
+                
+                const modal = new bootstrap.Modal(document.getElementById('infoModal'));
+                modal.show();
+            } else {
+                showMessage(data.message, 'danger');
+            }
+        });
+    }
+    
+    // 更新返回按钮状态
+    document.getElementById('backBtn').disabled = currentPath.length <= 1;
+    
+    // 键盘快捷键
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Delete' && selectedItem) {
+            deleteItem(selectedItem);
+        } else if (e.key === 'F2' && selectedItem) {
+            showRenameModal(selectedItem);
+        }
+    });
+    
+    // 空白区域右键菜单
+    document.querySelector('.main-content').addEventListener('contextmenu', function(e) {
+        if (e.target === this || e.target.closest('.file-item') === null) {
+            e.preventDefault();
+            showEmptyAreaContextMenu(e);
+        }
+    });
+    
+    function showEmptyAreaContextMenu(event) {
+        hideContextMenu();
+        
+        const menu = document.createElement('div');
+        menu.className = 'context-menu';
+        menu.style.left = event.pageX + 'px';
+        menu.style.top = event.pageY + 'px';
+        
+        const menuItems = [
+            {
+                text: '新建文件夹',
+                icon: 'bi-folder-plus',
+                action: () => showCreateModal('folder')
+            },
+            {
+                text: '新建文件',
+                icon: 'bi-file-plus',
+                action: () => showCreateModal('file')
+            }
+        ];
+        
+        menuItems.forEach(item => {
+            const menuItem = document.createElement('div');
+            menuItem.className = 'context-menu-item';
+            menuItem.innerHTML = `<i class="bi ${item.icon} me-2"></i>${item.text}`;
+            menuItem.onclick = item.action;
+            menu.appendChild(menuItem);
+        });
+        
+        document.body.appendChild(menu);
+    }
+</script>
+{% endblock %}
